@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "powersupplydriver"
+version = "0.1.0"
+description = "socket driver fro power supply"
+authors = ["RuneMyrskog-msi <65921525+RuneMyrskog-msi@users.noreply.github.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.4.3"
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
