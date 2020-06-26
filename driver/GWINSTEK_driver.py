@@ -5,13 +5,17 @@ import time
 #TODO test commands for time to sleep before theyre confirmed to have completed
     #
     # SYST:ERR, what exactly does it mean pulled when any command was not successfully executed
-    #
+#TODO make rasie for type method
 
 class GWINSTEK_driver:
     
     def __init__(self, ip: str, port: int, output_on_delay: float=0.0, output_off_delay: float=0.0, output_mode=0, sense_avg_count: int=1, ocp: float=None, ovp: float=None):
         self.TCP_IP = ip 
         self.PORT = port
+
+        #try one socket open for duration of communication
+        #self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        #self.socket.connect(self.TCP_IP,self.PORT)
         
         # establish system constants once  
         self.OCP_MIN = float(self._send_read("SOUR:CURR:PROT:LEV? MIN"))
@@ -40,7 +44,6 @@ class GWINSTEK_driver:
 
         self.OUTPUT_MODES = {'CVHS': 0,'CCHS': 1,'CVLS': 2,'CCLS': 3}
         self.SYSTEM_INFO = self._get_system_info()
-        print('oooooooggaaaaa')
 
         # configurations
         if not ocp:
@@ -63,10 +66,13 @@ class GWINSTEK_driver:
         if not message.endswith('\n'):
             message += '\n'
         
+        #self.socket.send(message.encode())
+        
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:    
             s.connect((self.TCP_IP, self.PORT))
             s.send(message.encode())
-            #time.sleep(0.1)
+            time.sleep(0.1)
+            
 
     def _send_read(self, message: str):
         # open TCP socket, send 'message' to 'self.TCP_IP' on port 'self.PORT', 
@@ -314,7 +320,11 @@ class GWINSTEK_driver:
         return True
 
     def system_preset(self):
-        self._send("SYST:PRES")  
+        self._send("SYST:PRES") 
+
+    def system_error(self):
+        message = "SYST:ERR?" 
+        return self._send_read(message)
     
     def test_device(self):
         message = "*TST?"
@@ -322,7 +332,7 @@ class GWINSTEK_driver:
         return error_code
 
 def raise_for_range(value, minimum, maximum):
-    if value < minimum or value > maximum:
+    if value < minimum or value > maximum :
         raise ValueError(f"Value outside acceptable range: {minimum} - {maximum}")
 
 def percent_error(expected_value, actual_value):
