@@ -344,8 +344,10 @@ class GWINSTEK_driver:
         return error_code
 
 def raise_for_range(value, minimum, maximum):
-    if (minimum and value < minimum) or (maximum and value > maximum):
-        raise ValueError(f"Value outside acceptable range: {minimum} - {maximum}")
+    if minimum is not None and value < minimum:
+        raise ValueError(f"Value ({value}) outside acceptable range: minimum={minimum}")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"Value ({value}) outside acceptable range: maximum={maximum}")
 
 def raise_for_type(value, expected_type):
     if type(value) is int and expected_type is float:
