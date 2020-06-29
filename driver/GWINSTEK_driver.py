@@ -3,8 +3,9 @@ import time
 
 
 #TODO test commands for time to sleep before theyre confirmed to have completed
-#TODO make raise for type method 
-#TODO check system_error() for each set method
+    #
+    # SYST:ERR, what exactly does it mean pulled when any command was not successfully executed
+#TODO make rasie for type method
 
 class GWINSTEK_driver:
     
@@ -71,6 +72,7 @@ class GWINSTEK_driver:
             s.connect((self.TCP_IP, self.PORT))
             s.send(message.encode())
             time.sleep(0.1)
+            
 
     def _send_read(self, message: str):
         # open TCP socket, send 'message' to 'self.TCP_IP' on port 'self.PORT', 
@@ -88,7 +90,6 @@ class GWINSTEK_driver:
                 print(f"[LAST MESSAGE]: {message}")
                 raise err
             return response
-    
     
     def _get_system_info(self):
         sys_info_string = self._send_read('SYST:INF?')
@@ -221,11 +222,6 @@ class GWINSTEK_driver:
         response = self._send_read(message) 
         return True if response == 1 else False
     
-    def raise_for_system_error(self):
-        error_msg = self._system_error()
-        if not error_msg.startswith('+0'):
-            raise RuntimeError(error)
-    
     def reset(self):
         self._send(f"*RST\n")
     
@@ -248,7 +244,6 @@ class GWINSTEK_driver:
         raise_for_range(rate, self.CURR_FALL_MIN, self.CURR_FALL_MAX) 
         message = f"SOUR:CURR:SLEW:FALL {rate}"  
         self._send(message)
-
     
     def set_current_slew_rise(self, rate: float):
         raise_for_range(rate, self.CURR_RISE_MIN, self.CURR_RISE_MAX)
@@ -295,7 +290,6 @@ class GWINSTEK_driver:
         raise_for_range(voltage, self.VOLT_MIN, self.VOLT_MAX)
         message = f"SOUR:VOLT:LEV:IMM:AMPL {voltage}"
         self._send(message)
-        
 
         return percent_error(self.get_voltage(), voltage) < 5
     
@@ -328,7 +322,7 @@ class GWINSTEK_driver:
     def system_preset(self):
         self._send("SYST:PRES") 
 
-    def _system_error(self):
+    def system_error(self):
         message = "SYST:ERR?" 
         return self._send_read(message)
     
@@ -356,8 +350,8 @@ if __name__ == "__main__":
     print(f"error status: {error_code}")
 
     print("\n[SYSTEM INFO]")
-    for key in driver.SYSTEM_INFO:
-        print(f"{key}: {driver.SYSTEM_INFO[key]}")
+    for key in driver.system_info:
+        print(f"{key}: {driver.system_info[key]}")
 
     driver.set_voltage(6)
     driver.set_current(0.02)
