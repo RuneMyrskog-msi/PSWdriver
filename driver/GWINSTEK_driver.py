@@ -80,7 +80,7 @@ class GWINSTEK_driver:
             try:
                 response = s.recv(256).decode().replace('\n','')
             except TimeoutError as err:
-                 print(f"[LAST MESSAGE]: {message}")
+                print(f"[LAST MESSAGE]: {message}")
                 raise err
         return response
     
