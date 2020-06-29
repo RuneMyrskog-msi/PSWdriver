@@ -2,20 +2,16 @@ import socket
 import time
 
 
-#TODO test commands for time to sleep before theyre confirmed to have completed
-    #
-    # SYST:ERR, what exactly does it mean pulled when any command was not successfully executed
-#TODO make rasie for type method
+#DEVELOPMENT
+import pdb
+
 
 class GWINSTEK_driver:
     
-    def __init__(self, ip: str, port: int, output_on_delay: float=0.0, output_off_delay: float=0.0, output_mode=0, sense_avg_count: int=1, ocp: float=None, ovp: float=None):
+    def __init__(self, ip: str, port: int, output_on_delay: float=0.0, output_off_delay: float=0.0,
+     output_mode=0, sense_avg_count: int=1, ocp: float=None, ovp: float=None):
         self.TCP_IP = ip 
         self.PORT = port
-
-        #try one socket open for duration of communication
-        #self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        #self.socket.connect(self.TCP_IP,self.PORT)
         
         # establish system constants once  
         self.OCP_MIN = float(self._send_read("SOUR:CURR:PROT:LEV? MIN"))
@@ -43,14 +39,14 @@ class GWINSTEK_driver:
         self.BEEP_DUR_MAX = int(self._send_read("SYST:BEEP? MAX"))
 
         self.OUTPUT_MODES = {'CVHS': 0,'CCHS': 1,'CVLS': 2,'CCLS': 3}
-        self.SYSTEM_INFO = self._get_system_info()
+        self.system_info= self._get_system_info()
 
         # configurations
         if not ocp:
             ocp = self.OCP_MAX
         if not ovp:
             ovp = self.OVP_MAX
-
+        
         self._set_output_on_delay(output_on_delay)
         self._set_output_off_delay(output_off_delay)
         self.set_output_mode(output_mode)
@@ -59,37 +55,44 @@ class GWINSTEK_driver:
         self.set_ovp(ovp)
         self.abort_commands()
 
-
-    def _send(self, message: str):
+    def _send(self, message: str, delay: float=0.0):
         # open socket and send 'message' over TCP to self.TCP_IP on port self.PORT, 
         # then close socket
         if not message.endswith('\n'):
             message += '\n'
         
-        #self.socket.send(message.encode())
-        
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:    
             s.connect((self.TCP_IP, self.PORT))
             s.send(message.encode())
-            time.sleep(0.1)
-            
+            time.sleep(delay)
 
-    def _send_read(self, message: str):
+    def _send_read(self, message: str, delay: float=0.0):
         # open TCP socket, send 'message' to 'self.TCP_IP' on port 'self.PORT', 
         # return response from the socket as a string
         if not message.endswith('\n'):
             message += '\n'
-
+        
+        response=None
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:    
             s.connect((self.TCP_IP, self.PORT))
             s.send(message.encode())
-            #time.sleep(0.1)
+            time.sleep(delay)
             try:
                 response = s.recv(256).decode().replace('\n','')
             except TimeoutError as err:
-                print(f"[LAST MESSAGE]: {message}")
+                 print(f"[LAST MESSAGE]: {message}")
                 raise err
-            return response
+        return response
+    
+    def _send_command(self, command, value=None, value_type=None, minimum=None, maximum=None):
+        if value is not None:
+            raise_for_type(value, value_type)
+            raise_for_range(value, minimum=minimum, maximum=maximum)
+            message = f"{command} {value}"
+        else:
+            message = command
+        self._send(message)
+        self.raise_for_system_error()
     
     def _get_system_info(self):
         sys_info_string = self._send_read('SYST:INF?')
@@ -108,19 +111,20 @@ class GWINSTEK_driver:
         }
         return system_info
 
-    def _set_output_on_delay(self, delay: float):
-        message = f"OUTP:DEL:ON {delay}"
-        self._send(message)
+    def _set_output_on_delay(self, value: float):
+        command = f"OUTP:DEL:ON"
+        self._send_command(command, value=value, value_type=float)
         return True
 
-    def _set_output_off_delay(self, delay: float):
-        message = f"OUTP:DEL:OFF {delay}"
-        self._send(message)
+    def _set_output_off_delay(self, value: float):
+        command = f"OUTP:DEL:OFF"
+        self._send_command(command, value=value, value_type=float)
         return True
     
     def _measure(self, which: str):
         message = f"MEAS:SCAL:{which}:DC?"
         return float(self._send_read(message))
+    
 
     def abort_commands(self):
         self._send("ABOR")
@@ -208,8 +212,8 @@ class GWINSTEK_driver:
         return self._measure("VOLT")
     
     def output_protection_clear(self):
-        message = "OUTP:PROT:CLE"
-        self._send(message) 
+        command = "OUTP:PROT:CLE"
+        self._send_command(command)
     
     def output_recover(self):
         self.set_output_state(False)
@@ -222,105 +226,113 @@ class GWINSTEK_driver:
         response = self._send_read(message) 
         return True if response == 1 else False
     
+    def raise_for_system_error(self):
+        error_msg = self.system_error()
+        if not error_msg.startswith('+0'):
+            raise RuntimeError(f"Error returned by power supply: {error_msg}")
+
     def reset(self):
-        self._send(f"*RST\n")
+        command = "*RST"
+        self._send_command(command)
     
     def set_bleeder_resistor_state(self, value: bool):
-        message = "SYST:CONF:BLE:STAT ON" if value else "SYST:CONF:BLE:STAT OFF"
-        self._send(message)
+        command = "SYST:CONF:BLE:STAT"
+        value = "ON" if value else "OFF"
+        self._send_command(command, value=value, value_type=str)
     
     def set_buzzer_state(self, value: bool):
-        message = "SYST:CONF:BEEP:STAT ON" if value else "SYST:CONF:BEEP:STAT OFF"
-        self._send(message)
+        command = "SYST:CONF:BEEP:STAT"
+        value = "ON" if value else "OFF"
+        self._send_command(command, value=value, value_type=str)
+        return True
     
-    def set_current(self, current: float):
-        raise_for_range(current, self.CURR_MIN, self.CURR_MAX)
-        message = f"SOUR:CURR:LEV:IMM:AMPL {current}"
-        self._send(message)
+    def set_current(self, value: float):
+        command = f"SOUR:CURR:LEV:IMM:AMPL"
+        self._send_command(command, value=value, value_type=float, minimum=self.CURR_MIN, maximum=self.CURR_MAX)
+        return percent_error(self.get_current(), value) < 5
+    
+    def set_current_slew_fall(self, value: float):
+        command = f"SOUR:CURR:SLEW:FALL"  
+        self._send_command(command, value=value, value_type=float, minimum=self.CURR_FALL_MIN, maximum=self.CURR_FALL_MAX)
+        return True
+    
+    def set_current_slew_rise(self, value: float):
+        command = f"SOUR:CURR:SLEW:RIS"
+        self._send_command(command, value=value, value_type=float, minimum=self.CURR_RISE_MIN, maximum=self.CURR_RISE_MAX)
+        return True
+    
+    def set_ocp(self, value: float):
+        command = f"SOUR:CURR:PROT:LEV"
+        self._send_command(command, value=value, value_type=float, minimum=self.OCP_MIN, maximum=self.OCP_MAX)
+        return True
 
-        return percent_error(self.get_current(), current) < 5
+    def set_ovp(self, value: float):
+        command = f"SOUR:VOLT:PROT:LEV"
+        self._send_command(command, value=value, value_type=float, minimum=self.OVP_MIN, maximum=self.OVP_MAX)  
+        return True
     
-    def set_current_slew_fall(self, rate: float):
-        raise_for_range(rate, self.CURR_FALL_MIN, self.CURR_FALL_MAX) 
-        message = f"SOUR:CURR:SLEW:FALL {rate}"  
-        self._send(message)
-    
-    def set_current_slew_rise(self, rate: float):
-        raise_for_range(rate, self.CURR_RISE_MIN, self.CURR_RISE_MAX)
-        message = f"SOUR:CURR:SLEW:RIS {rate}"
-        self._send(message)
-    
-    def set_ocp(self, level: float):
-        raise_for_range(level, self.OCP_MIN, self.OCP_MAX)
-        message = f"SOUR:CURR:PROT:LEV {level}"
-        self._send(message)
-
-    def set_ovp(self, level: float):
-        raise_for_range(level, self.OVP_MIN, self.OVP_MAX)
-        message = f"SOUR:VOLT:PROT:LEV {level}"
-        self._send(message)  
-    
-    def set_output_mode(self, mode):
-        if mode in self.OUTPUT_MODES:
-            mode = self.OUTPUT_MODES[mode]
-        if mode in self.OUTPUT_MODES.values():
-            message = f"OUTP:MODE {mode}"
-            self._send(message)
-            return int(self.get_output_mode()) == mode
+    def set_output_mode(self, value):
+        if value in self.OUTPUT_MODES:
+            value = self.OUTPUT_MODES[value]
+        if value in self.OUTPUT_MODES.values():
+            command = f"OUTP:MODE"
+            self._send_command(command, value=value, value_type=int)
+            return int(self.get_output_mode()) == value
         else:
             raise ValueError("Value must be 0-3 or 'CVHS','CCHS','CVLS','CCLS'")
     
-    def set_output_state(self, value: bool):
-        message = "OUTP:STAT 1" if value else "OUTP:STAT 0"  
-        self._send(message)
+    def set_output_state(self, state: bool):
+        command = "OUTP:STAT"  
+        value = 1 if value else 0
+        self._send_command(command, value=value, value_type=int)
     
-    def set_series_resistance(self, level: float):
-        raise_for_range(level, self.RES_MIN, self.RES_MAX)
-        message = f"SOUR:RES:LEV:IMM:AMPL {level}"
-        self._send(message)
-        return percent_error(self.get_series_resistance(), level) < 5
+    def set_series_resistance(self, value: float):
+        command = f"SOUR:RES:LEV:IMM:AMPL"
+        self._send_command(command, value=value, value_type=float, minimum=self.RES_MIN, maximum=self.RES_MAX)
+        return percent_error(self.get_series_resistance(), value) < 5
 
-    def set_sense_avg_count(self, level: int):
-        raise_for_range(level,0,2)
-        message = f"SENS:AVER:COUN {level}"
-        self._send(message)
-        return self.get_sense_avg_count() == level
+    def set_sense_avg_count(self, value: int):
+        command = f"SENS:AVER:COUNT"
+        self._send_command(command, value=value, value_type=int)
+        return int(self.get_sense_avg_count()) == value
     
-    def set_voltage(self, voltage: float):
-        raise_for_range(voltage, self.VOLT_MIN, self.VOLT_MAX)
-        message = f"SOUR:VOLT:LEV:IMM:AMPL {voltage}"
-        self._send(message)
-
-        return percent_error(self.get_voltage(), voltage) < 5
+    def set_voltage(self, value: float):
+        command = f"SOUR:VOLT:LEV:IMM:AMPL"
+        self._send_command(command, value=value, value_type=float, minimum=self.VOLT_MIN, maximum=self.VOLT_MAX)
+        return percent_error(self.get_voltage(), value) < 5
     
     def set_voltage_current(self, voltage: float, current: float):
+        command = "APPL"
+        value = f"{voltage}"
+        raise_for_type(voltage, float)
         raise_for_range(voltage, self.VOLT_MIN, self.VOLT_MAX)
+        raise_for_type(current, float)
         raise_for_range(current, self.CURR_MIN, self.CURR_MAX)
+
         message = f"APPL {voltage},{current}"
         self._send(message)
         voltage_error = percent_error(self.get_voltage(), voltage)
         current_error = percent_error(self.get_current(), current)
-
         return voltage_error < 5 & current_error < 5
     
-    def set_voltage_slew_fall(self, rate: float):
-        raise_for_range(rate, self.VOLT_FALL_MIN, self.VOLT_FALL_MAX)
-        message = f"SOUR:VOLT:SLEW:FALL {rate}"
-        self._send(message)
+    def set_voltage_slew_fall(self, value: float):
+        command = f"SOUR:VOLT:SLEW:FALL"
+        self._send_command(command, value=value, value_type=float, minimum=self.VOLT_FALL_MIN, maximum=self.VOLT_FALL_MAX)
+        return True
     
-    def set_voltage_slew_rise(self, rate: float):
-        raise_for_range(rate, self.VOLT_RISE_MIN, self.VOLT_RISE_MAX)
-        message = f"SOUR:VOLT:SLEW:RIS {rate}"
-        self._send(message)
-    
-    def system_beep(self, duration: int=1):
-        raise_for_range(duration, self.BEEP_DUR_MIN, self.BEEP_DUR_MAX)
-        message = f"SYST:BEEP:IMM {duration}"
-        self._send(message)
+    def set_voltage_slew_rise(self, value: float):
+        command = f"SOUR:VOLT:SLEW:RIS"
+        self._send_command(command, value=value, value_type=float, minimum=self.VOLT_RISE_MIN, maximum=self.VOLT_RISE_MAX)
+        return True
+
+    def system_beep(self, value: int=1):
+        command = f"SYST:BEEP:IMM"
+        self._send_command(command, value=value, value_type=int, minimum=self.BEEP_DUR_MIN, maximum=self.BEEP_DUR_MAX)
         return True
 
     def system_preset(self):
-        self._send("SYST:PRES") 
+        command = "SYST:PRES"
+        self._send_command(command)
 
     def system_error(self):
         message = "SYST:ERR?" 
@@ -332,22 +344,26 @@ class GWINSTEK_driver:
         return error_code
 
 def raise_for_range(value, minimum, maximum):
-    if value < minimum or value > maximum :
+    if (minimum and value < minimum) or (maximum and value > maximum):
         raise ValueError(f"Value outside acceptable range: {minimum} - {maximum}")
+
+def raise_for_type(value, expected_type):
+    if type(value) is int and expected_type is float:
+        return
+    if type(value) is not expected_type:
+        raise TypeError(f'Expected type {expected_type}, got type {type(value)}')
 
 def percent_error(expected_value, actual_value):
     percent_error = abs((expected_value - actual_value)/expected_value)*100
     return percent_error
 
-if __name__ == "__main__":
-
+def main():
     TCP_IP = "192.168.1.101"
     PORT = 2268
     driver = GWINSTEK_driver(TCP_IP, PORT)
 
-    error_code =  driver.test_device()
     print("\n[DEVICE STATUS]")
-    print(f"error status: {error_code}")
+    print(f"error status: {driver.test_device()}")
 
     print("\n[SYSTEM INFO]")
     for key in driver.system_info:
@@ -356,21 +372,57 @@ if __name__ == "__main__":
     driver.set_voltage(6)
     driver.set_current(0.02)
     print("\n[SETTINGS]")
-    print(f"voltage: {driver.get_voltage()}")
     print(f"current: {driver.get_current()}")
+    print(f"current_slew_fall: {driver.get_current_slew_fall()}")
+    print(f"current slew rise: {driver.get_current_slew_rise()}")
+    print(f"over current protection (OCP): {driver.get_ocp()}")
+    print(f"voltage: {driver.get_voltage()}")
+    print(f"voltage slew fall: {driver.get_voltage_slew_fall()}")
+    print(f"voltage slew rise: {driver.get_voltage_slew_fall()}")
+    print(f"over voltage protection (OVP): {driver.get_ovp()}")
+    print(f"series resistance: {driver.get_series_resistance()}")
     print(f"output mode: {driver.get_output_mode()}")
+    print(f"smoothing level: {driver.get_sense_avg_count()}")
+    print("\n[MEASUREMENTS]")
+    print(f"measured voltage: {driver.measure_voltage()}")
+    print(f"measured current: {driver.measure_current()}")
+    print(f"measured power: {driver.measure_power()}")
+
+if __name__ == "__main__":
+
+    main()
+
     
 
-    v_measured = driver.measure_voltage()
-    I_measured = driver.measure_current()
-    p_measured = driver.measure_power()
-    print("\n[MEASUREMENTS]")
-    print(f"measured voltage: {v_measured}")
-    print(f"measured current: {I_measured}")
-    print(f"measured power: {p_measured}")
-'''
-from GWINSTEK_driver import GWINSTEK_driver
-driver = GWINSTEK_driver("192.168.1.101",2268)
 
-driver.set_output_state(False)
+'''
+    TERMINAL TESTING SET UP
+
+TCP_IP = "192.168.1.101"
+PORT = 2268
+import socket
+def _send_read(message: str):
+    if not message.endswith('\n'):
+        message += '\n'
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:    
+        s.connect((TCP_IP, PORT))
+        s.send(message.encode())
+        try:
+            response = s.recv(256).decode().replace('\n','')
+        except TimeoutError as err:
+            print(f"[LAST MESSAGE]: {message}")
+            raise err
+        return response
+
+def _send(message: str):
+    if not message.endswith('\n'):
+        message += '\n'
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:    
+        s.connect((TCP_IP, PORT))
+        s.send(message.encode())
+
+import pdb
+import GWINSTEK_driver
+pdb.run('GWINSTEK_driver.main()')
+
 '''
